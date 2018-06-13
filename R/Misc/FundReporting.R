@@ -73,7 +73,7 @@ navCalculating <- function(fundID) {
         dtNav <- dtAccount[, .(
             TradingDay, accountID, updateTime, 
             balance, deposit, withdraw,
-            flowCapital, banking, fee,
+            flowCapital, banking, fee = ifelse(is.na(Amount),0,as.numeric(Amount)),
             shares = ifelse(is.na(shares.y), 0, shares.y)
             )]
         dtNav[, ":="(
@@ -97,6 +97,30 @@ navCalculating <- function(fundID) {
         dtNav[, nav := assets / shares]
     }
 
+    ## =========================================================================
+    ## 是否是周数据
+    if (F) {
+        dtNav[, ":="(
+            TradingYear = substr(TradingDay, 1, 4),
+            TradingWeek = lubridate::week(TradingDay)
+          )]
+        nanhua[, ":="(
+            TradingYear = substr(TradingDay, 1, 4),
+            TradingWeek = lubridate::week(TradingDay)
+          )]  
+
+        currWeek <- lubridate::week(Sys.Date())
+        preWeek <- currWeek - 1
+        nav_currWeek <- dtNav[TradingYear == format(Sys.Date(), "%Y")][TradingWeek == currWeek][.N]
+        nav_preWeek <- dtNav[TradingYear == format(Sys.Date(), "%Y")][TradingWeek == preWeek][.N]
+        deltaNav <- nav_currWeek$nav - nav_preWeek$nav   
+
+        nanhua_currWeek <- nanhua[TradingYear == format(Sys.Date(), "%Y")][TradingWeek == currWeek][.N]
+        nanhua_preWeek <- nanhua[TradingYear == format(Sys.Date(), "%Y")][TradingWeek == preWeek][.N]
+        deltaNanhua <- nanhua_currWeek$close / nanhua_preWeek$close - 1
+    }
+    ## =========================================================================
+
     dtNav[, TradingDay := as.Date(TradingDay)] %>% 
         .[, rtn := c(0, diff(nav)/.SD[1:(.N-1), nav])] %>%
         .[, ":="(
@@ -113,7 +137,6 @@ navCalculating <- function(fundID) {
     return(dtNav)
     ## -----------
 }
-
 ## =============================================================================
 ## i = 1
 fetchFund <- function(fundID, author = FALSE) {
@@ -125,7 +148,7 @@ fetchFund <- function(fundID, author = FALSE) {
     fundPerformance <- data.table(
         基金名称 = accountAll[accountID == fundID, accountName],
         期货账户 = prettyNum(dtNav[.N, balance + sum(fee)], big.mark = ','),
-        现货账户 = prettyNum(dtNav[.N, flowCapital], big.mark = ','),
+        理财账户 = prettyNum(dtNav[.N, flowCapital], big.mark = ','),
         银行存款 = prettyNum(dtNav[.N, banking], big.mark = ','),
         账户总额 = prettyNum(dtNav[.N, assets], big.mark = ','),
         今日盈亏 = ifelse(nrow(dtNav) > 1,
@@ -133,7 +156,7 @@ fetchFund <- function(fundID, author = FALSE) {
                         dtNav[.N, assets - (deposit - withdraw)] -
                         dtNav[.N-1, assets - (deposit - withdraw)], big.mark = ','),
                           0),
-        收益波动 = dtNav[.N, paste0(as.character(round(rtn * 100),2),'%')],
+        收益波动 = paste0(as.character(dtNav[.N, round(rtn * 100,2)]),'%'),
         基金净值 = dtNav[.N, round(nav,4)]
         )
     ## -------------------------------------------------------------------------
